@@ -39,6 +39,7 @@
 #define ITM_LAR		0xE0000FB0
 
 #define CPUID		0xE000ED00
+#define FSEC		0x0000040C
 /* Debug Control Block */
 #define DCB_DHCSR	0xE000EDF0
 #define DCB_DCRSR	0xE000EDF4
@@ -210,5 +211,7 @@ int cortex_m_remove_watchpoint(struct target *target, struct watchpoint *watchpo
 void cortex_m_enable_breakpoints(struct target *target);
 void cortex_m_enable_watchpoints(struct target *target);
 void cortex_m_dwt_setup(struct cortex_m_common *cm, struct target *target);
+
+int kinetis_disable_wdog (struct target *target);
 
 #endif /* CORTEX_M_H */

@@ -56,7 +56,8 @@ enum log_levels {
 	LOG_LVL_ERROR = 0,
 	LOG_LVL_WARNING = 1,
 	LOG_LVL_INFO = 2,
-	LOG_LVL_DEBUG = 3
+	LOG_LVL_DEBUG = 3,
+	LOG_LVL_DAP = 4
 };
 
 void log_printf(enum log_levels level, const char *file, unsigned line,
@@ -101,6 +102,14 @@ extern int debug_level;
  * Matters on feeble CPUs for DEBUG/INFO statements that are involved frequently */
 
 #define LOG_LEVEL_IS(FOO)  ((debug_level) >= (FOO))
+
+#define LOG_DAP(expr ...) \
+	do { \
+		if (debug_level >= LOG_LVL_DAP) \
+			log_printf_lf(LOG_LVL_DAP, \
+				__FILE__, __LINE__, __func__, \
+				expr); \
+	} while (0)
 
 #define LOG_DEBUG(expr ...) \
 	do { \

@@ -299,12 +299,15 @@ static int openocd_thread(int argc, char *argv[], struct command_context *cmd_ct
 	return ret;
 }
 
+char *argv0;
+
 /* normally this is the main() function entry, but if OpenOCD is linked
  * into application, then this fn will not be invoked, but rather that
  * application will have it's own implementation of main(). */
 int openocd_main(int argc, char *argv[])
 {
 	int ret;
+        argv0 = argv[0];
 
 	/* initialize commandline interface */
 	struct command_context *cmd_ctx;

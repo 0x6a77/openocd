@@ -111,7 +111,18 @@ int parse_config_file(struct command_context *cmd_ctx)
 	char **cfg;
 
 	if (!config_file_names) {
-		command_run_line(cmd_ctx, "script openocd.cfg");
+		int rc;
+		rc = command_run_line(cmd_ctx, "script openocd.cfg");
+		if (rc != ERROR_OK) {
+			LOG_INFO("No configuration files specified defaulting to kinetis.cfg");
+			rc = command_run_line(cmd_ctx, "script kinetis.cfg");
+			if (rc != ERROR_OK) {
+				return rc;
+			}
+		}
+		else {
+			LOG_INFO("Found openocd.cfg; kinetis.cfg not read automatically");
+		}
 		return ERROR_OK;
 	}
 

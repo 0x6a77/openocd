@@ -56,7 +56,7 @@ extern struct jtag_interface *jtag_interface;
 
 static int (cmsis_dap_queue_ap_abort)(struct adiv5_dap *dap, uint8_t *ack)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_ap_abort");
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_ap_abort");
 
 	/* FIXME: implement this properly cmsis-dap has DAP_WriteABORT()
 	 * for now just hack @ everything */
@@ -66,7 +66,7 @@ static int (cmsis_dap_queue_ap_abort)(struct adiv5_dap *dap, uint8_t *ack)
 
 static int cmsis_dap_queue_dp_read(struct adiv5_dap *dap, unsigned reg, uint32_t *data)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_dp_read %d", reg);
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_dp_read %d", reg);
 
 	int retval = jtag_interface->swd->read_reg(
 			(CMSIS_CMD_DP | CMSIS_CMD_READ | CMSIS_CMD_A32(reg)), data);
@@ -82,7 +82,7 @@ static int cmsis_dap_queue_dp_read(struct adiv5_dap *dap, unsigned reg, uint32_t
 
 static int cmsis_dap_queue_idcode_read(struct adiv5_dap *dap, uint8_t *ack, uint32_t *data)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_idcode_read");
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_idcode_read");
 
 	int retval = cmsis_dap_queue_dp_read(dap, DP_IDCODE, data);
 	if (retval != ERROR_OK)
@@ -95,7 +95,7 @@ static int cmsis_dap_queue_idcode_read(struct adiv5_dap *dap, uint8_t *ack, uint
 
 static int (cmsis_dap_queue_dp_write)(struct adiv5_dap *dap, unsigned reg, uint32_t data)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_dp_write %d 0x%08" PRIx32, reg, data);
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_dp_write %d 0x%08" PRIx32, reg, data);
 
 	/* setting the ORUNDETECT bit causes issues for some targets,
 	 * disable until we find out why */
@@ -132,7 +132,7 @@ static int cmsis_dap_ap_q_bankselect(struct adiv5_dap *dap, unsigned reg)
 
 static int (cmsis_dap_queue_ap_read)(struct adiv5_dap *dap, unsigned reg, uint32_t *data)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_ap_read %d", reg);
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_ap_read %d", reg);
 
 	int retval = cmsis_dap_ap_q_bankselect(dap, reg);
 	if (retval != ERROR_OK)
@@ -152,7 +152,7 @@ static int (cmsis_dap_queue_ap_read)(struct adiv5_dap *dap, unsigned reg, uint32
 
 static int (cmsis_dap_queue_ap_write)(struct adiv5_dap *dap, unsigned reg, uint32_t data)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_ap_write %d 0x%08" PRIx32, reg, data);
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_ap_write %d 0x%08" PRIx32, reg, data);
 
 	/* TODO: CSW_DBGSWENABLE (bit31) causes issues for some targets
 	 * disable until we find out why */
@@ -178,7 +178,7 @@ static int (cmsis_dap_queue_ap_write)(struct adiv5_dap *dap, unsigned reg, uint3
 static int (cmsis_dap_queue_ap_read_block)(struct adiv5_dap *dap, unsigned reg,
 		uint32_t blocksize, uint8_t *buffer)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_queue_ap_read_block 0x%08" PRIx32, blocksize);
+	LOG_DAP("CMSIS-ADI: cmsis_dap_queue_ap_read_block 0x%08" PRIx32, blocksize);
 
 	int retval = jtag_interface->swd->read_block(
 			(CMSIS_CMD_AP | CMSIS_CMD_READ | CMSIS_CMD_A32(AP_REG_DRW)),
@@ -196,7 +196,7 @@ static int (cmsis_dap_queue_ap_read_block)(struct adiv5_dap *dap, unsigned reg,
 /** Executes all queued DAP operations. */
 static int cmsis_dap_run(struct adiv5_dap *dap)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_run");
+	LOG_DAP("CMSIS-ADI: cmsis_dap_run");
 	/* FIXME: for now the CMSIS-DAP interface hard-wires a zero-size queue. */
 
 	return ERROR_OK;
@@ -243,7 +243,7 @@ static const struct command_registration cmsis_dap_handlers[] = {
 
 static int cmsis_dap_select(struct command_context *ctx)
 {
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_select");
+	LOG_DAP("CMSIS-ADI: cmsis_dap_select");
 
 	int retval = register_commands(ctx, NULL, cmsis_dap_handlers);
 
@@ -278,7 +278,7 @@ static int cmsis_dap_init(struct command_context *ctx)
 	uint32_t idcode;
 	int status;
 
-	LOG_DEBUG("CMSIS-ADI: cmsis_dap_init");
+	LOG_DAP("CMSIS-ADI: cmsis_dap_init");
 
 	/* Force the DAP's ops vector for CMSIS-DAP mode.
 	 * messy - is there a better way? */

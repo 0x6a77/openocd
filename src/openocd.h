@@ -21,6 +21,8 @@
 #ifndef OPENOCD_H
 #define OPENOCD_H
 
+extern char *argv0;
+
 /**
  * Different applications can define this entry point to override
  * the default openocd main function.  On most systems, this will be

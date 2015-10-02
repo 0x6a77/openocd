@@ -25,11 +25,16 @@
 #include "config.h"
 #endif
 
+#include "openocd.h"
+
 #include "configuration.h"
 /* @todo the inclusion of server.h here is a layering violation */
 #include <server/server.h>
 
 #include <getopt.h>
+
+#include <libgen.h>
+#include <string.h>
 
 static int help_flag, version_flag;
 
@@ -68,6 +73,36 @@ static char *find_suffix(const char *text, const char *suffix)
 }
 #endif
 
+#ifdef _WIN32
+#define PATH_DELIM ";"
+#else
+#define PATH_DELIM ":"
+
+static char *find_in_path(const char *bin)
+{
+  char *path = strdup (getenv ("PATH"));
+  char *elem;
+  while ((elem = strtok (path, PATH_DELIM))) {
+    char *t = alloc_printf ("%s/%s", elem, bin);
+    if (!access (t, X_OK))
+      return strdup (elem);
+    path = NULL;
+  }
+  return "";
+}
+#endif
+
+static inline int contains_slash (const char *str) {
+  int i;
+  for (i = 0; str[i]; i++) {
+    if (str[i] == '/')
+      return 1;
+  }
+  return 0;
+}
+
+#undef PKGDATADIR
+#define PKGDATADIR "/../" 
 static void add_default_dirs(void)
 {
 	const char *run_prefix;
@@ -92,10 +127,14 @@ static void add_default_dirs(void)
 
 	run_prefix = strExePath;
 #else
-	run_prefix = "";
+        if (!contains_slash (argv0)) {
+          run_prefix = find_in_path (argv0);
+        }
+        else {
+	  run_prefix = dirname (strdup (argv0));
+        }
 #endif
 
-	LOG_DEBUG("bindir=%s", BINDIR);
 	LOG_DEBUG("pkgdatadir=%s", PKGDATADIR);
 	LOG_DEBUG("run_prefix=%s", run_prefix);
 
@@ -204,7 +243,7 @@ int parse_cmdline_args(struct command_context *cmd_ctx, int argc, char *argv[])
 		LOG_OUTPUT("--version    | -v\tdisplay OpenOCD version\n");
 		LOG_OUTPUT("--file       | -f\tuse configuration file <name>\n");
 		LOG_OUTPUT("--search     | -s\tdir to search for config files and scripts\n");
-		LOG_OUTPUT("--debug      | -d\tset debug level <0-3>\n");
+		LOG_OUTPUT("--debug      | -d\tset debug level <0-4>\n");
 		LOG_OUTPUT("--log_output | -l\tredirect log output to file <name>\n");
 		LOG_OUTPUT("--command    | -c\trun <command>\n");
 		exit(-1);

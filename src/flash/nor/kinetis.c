@@ -90,11 +90,14 @@ const struct {
 	unsigned pflash_sector_size_bytes;
 	unsigned nvm_sector_size_bytes;
 	unsigned num_blocks;
-} kinetis_flash_params[4] = {
+} kinetis_flash_params[7] = {
 	{ 1<<10, 1<<10, 2 },
 	{ 2<<10, 1<<10, 2 },
 	{ 2<<10, 2<<10, 2 },
-	{ 4<<10, 4<<10, 4 }
+	{ 4<<10, 4<<10, 4 },
+	{ 4<<10, 4<<10, 2 },
+	{ 2<<10, 2<<10, 2 },
+	{ 4<<10, 0, 1 }
 };
 
 /* Addressess */
@@ -106,6 +109,15 @@ const struct {
 #define SIM_SDID	0x40048024
 #define SIM_FCFG1	0x4004804c
 #define SIM_FCFG2	0x40048050
+#define SMC_PMCTRL	0x4007E001
+#define SMC_PMSTAT	0x4007E003
+#define WDOG_STCTRLH 0x40052000
+
+/* Values */
+#define PM_STAT_RUN		0x01
+#define PM_STAT_VLPR		0x04
+#define PM_STAT_HSR		0x80
+#define PM_CTRL_RUNM_RUN	0x00
 
 /* Commands */
 #define FTFx_CMD_BLOCKSTAT  0x00
@@ -117,7 +129,10 @@ const struct {
 #define FTFx_CMD_MASSERASE  0x44
 
 /* The Kinetis K series uses the following SDID layout :
- * Bit 31-16 : 0
+ * Bit 31-28 : FAMILYID (or 0 on older devices)
+ * Bit 27-24 : SUBFAMID (or 0 on older devices)
+ * Bit 23-20 : SERIESID (or 0 on older devices)
+ * Bit 19-16 : Reserved (0)
  * Bit 15-12 : REVID
  * Bit 11-7  : DIEID
  * Bit 6-4   : FAMID
@@ -131,12 +146,7 @@ const struct {
  * Bit 15-12 : REVID
  * Bit 6-4   : Reserved (0)
  * Bit 3-0   : PINID
- *
- * SERIESID should be 1 for the KL-series so we assume that if
- * bits 31-16 are 0 then it's a K-series MCU.
  */
-
-#define KINETIS_SDID_K_SERIES_MASK  0x0000FFFF
 
 #define KINETIS_SDID_DIEID_MASK 0x00000F80
 #define KINETIS_SDID_DIEID_K_A	0x00000100
@@ -155,13 +165,19 @@ const struct {
 #define KINETIS_K_SDID_K20  0x00000290
 #define KINETIS_K_SDID_K21  0x00000230
 #define KINETIS_K_SDID_K22  0x00000210
+#define KINETIS_K_SDID_K22_M120  0x00000E90
+#define KINETIS_K_SDID_K24  0x00000710
 #define KINETIS_K_SDID_K30  0x00000120
 #define KINETIS_K_SDID_K40  0x00000130
 #define KINETIS_K_SDID_K50  0x000000E0
 #define KINETIS_K_SDID_K51  0x000000F0
 #define KINETIS_K_SDID_K53  0x00000170
 #define KINETIS_K_SDID_K60  0x000001C0
+#define KINETIS_K_SDID_K64  0x00000340
 #define KINETIS_K_SDID_K70  0x000001D0
+
+#define KINETIS_K_SDID_SERIESID_MASK 0x00F00000
+#define KINETIS_K_SDID_SERIESID_KL   0x00000000
 
 #define KINETIS_KL_SDID_SERIESID_MASK 0x00F00000
 #define KINETIS_KL_SDID_SERIESID_KL   0x00100000
@@ -185,6 +201,44 @@ struct kinetis_flash_bank {
 	} flash_class;
 };
 
+static int allow_fcf_writes = 0;
+
+COMMAND_HANDLER(fcf_write_enable_command)
+{
+	allow_fcf_writes = 1;
+	command_print(CMD_CTX, "Arbitrary flash configuration field writes disabled");
+	LOG_WARNING("BEWARE: incorrect flash configuration may permanently lock device");
+	return ERROR_OK;
+}
+
+COMMAND_HANDLER(fcf_write_disable_command)
+{
+	allow_fcf_writes = 0;
+	command_print(CMD_CTX, "Arbitrary flash configuration field writes disabled.");
+	return ERROR_OK;
+}
+
+static const struct command_registration fcf_command_handlers[] = {
+        {
+                .name = "fcf_write_enable",
+                .handler = fcf_write_enable_command,
+                .mode = COMMAND_CONFIG,
+                .help = "Allow writing arbitrary values to the Kinetis flash configuration field (use with caution).",
+                .usage = "",
+        },
+        {
+                .name = "fcf_write_disable",
+                .handler = fcf_write_disable_command,
+                .mode = COMMAND_CONFIG,
+                .help = "Disable writing arbitrary values to the Kinetis flash configuration field."
+			"Any writes will be adjusted to use the value "
+			"0xffffffff 0xffffffff 0xffffffff 0xfffffffe."
+			"Adjustments will trigger a warning.",
+                .usage = "",
+        },
+	COMMAND_REGISTRATION_DONE
+};
+
 FLASH_BANK_COMMAND_HANDLER(kinetis_flash_bank_command)
 {
 	struct kinetis_flash_bank *bank_info;
@@ -199,6 +253,8 @@ FLASH_BANK_COMMAND_HANDLER(kinetis_flash_bank_command)
 	memset(bank_info, 0, sizeof(struct kinetis_flash_bank));
 
 	bank->driver_priv = bank_info;
+
+	register_commands(CMD_CTX, NULL, fcf_command_handlers);
 
 	return ERROR_OK;
 }
@@ -538,6 +594,17 @@ static int kinetis_mass_erase(struct flash_bank *bank)
 	return ERROR_OK;
 }
 
+static uint8_t kinetis_get_mode(struct flash_bank *bank)
+{
+	int result;
+	uint8_t pmstat;
+	result = target_read_u8(bank->target, SMC_PMSTAT, &pmstat);
+	if (result != ERROR_OK)
+		return result;
+	LOG_DEBUG("SMC_PMSTAT: 0x%x", pmstat);
+	return pmstat;
+}
+
 static int kinetis_erase(struct flash_bank *bank, int first, int last)
 {
 	int result, i;
@@ -550,6 +617,18 @@ static int kinetis_erase(struct flash_bank *bank, int first, int last)
 
 	if ((first > bank->num_sectors) || (last > bank->num_sectors))
 		return ERROR_FLASH_OPERATION_FAILED;
+
+	if ((kinfo->sim_sdid & KINETIS_K_SDID_TYPE_MASK) == KINETIS_K_SDID_K22_M120) {
+		uint8_t pmstat = kinetis_get_mode (bank);
+		if (pmstat == PM_STAT_VLPR || pmstat == PM_STAT_HSR) {
+			LOG_DEBUG("Switching to run mode to perform flash operation");
+			uint8_t pmctrl = PM_CTRL_RUNM_RUN;
+			result = target_write_u8(bank->target, SMC_PMCTRL, pmctrl);
+			if (result != ERROR_OK)
+				return result;
+			while (kinetis_get_mode(bank) != PM_STAT_RUN);
+		}
+	}
 
 	if ((first == 0) && (last == (bank->num_sectors - 1)) && (kinfo->klxx))
 		return kinetis_mass_erase(bank);
@@ -575,7 +654,7 @@ static int kinetis_erase(struct flash_bank *bank, int first, int last)
 
 	if (first == 0) {
 		LOG_WARNING
-			("flash configuration field erased, please reset the device");
+			("Any changes to flash configuration field will not take effect until next reset");
 	}
 
 	return ERROR_OK;
@@ -595,12 +674,41 @@ static int kinetis_write(struct flash_bank *bank, uint8_t *buffer,
 		return ERROR_TARGET_NOT_HALTED;
 	}
 
+	if (!allow_fcf_writes) {
+		if (offset <= 0x400 && offset + count > 0x400) {
+			int fcf_match = 1;
+			uint32_t requested_fcf[4] = { 
+				*((uint32_t *) (buffer + (0x400 - offset))),
+				*((uint32_t *) (buffer + (0x404 - offset))),
+				*((uint32_t *) (buffer + (0x408 - offset))),
+				*((uint32_t *) (buffer + (0x40c - offset)))
+			};
+			uint32_t required_fcf[4] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xfffffffe };
+			for (i = 0; i < 4; i++) {
+				if (requested_fcf[i] != required_fcf[i]) {
+					fcf_match = 0;
+					*((uint32_t *) (buffer + (0x400 + (i * 4) - offset))) = required_fcf[i];
+				}
+			}
+			if (!fcf_match) {
+				LOG_WARNING ("Requested write to flash configuration "
+						"field 0x%08x 0x%08x 0x%08x 0x%08x "
+						"transformed to 0x%08x 0x%08x 0x%08x 0x%08x",
+						requested_fcf[0], requested_fcf[1], requested_fcf[2], requested_fcf[3],
+						required_fcf[0], required_fcf[1], required_fcf[2], required_fcf[3]);
+			}
+		}
+	}
+
 	if (kinfo->klxx) {
 		/* fallback to longword write */
 		fallback = 1;
 		LOG_WARNING("Kinetis L Series supports Program Longword execution only.");
 		LOG_DEBUG("flash write into PFLASH @08%" PRIX32, offset);
 
+	} else if (kinfo->granularity == 5 || kinfo->granularity == 6) {
+		fallback = 1;
+		LOG_DEBUG("flash write into PFLASH @08%" PRIX32, offset);
 	} else if (kinfo->flash_class == FC_FLEX_NVM) {
 		uint8_t ftfx_fstat;
 
@@ -640,7 +748,7 @@ static int kinetis_write(struct flash_bank *bank, uint8_t *buffer,
 		unsigned prog_section_chunk_bytes = kinfo->sector_size >> 8;
 		/* assume the NVM sector size is half the FlexRAM size */
 		unsigned prog_size_bytes = MIN(kinfo->sector_size,
-				kinetis_flash_params[kinfo->granularity].nvm_sector_size_bytes);
+				kinetis_flash_params[kinfo->granularity].nvm_sector_size_bytes / ((kinfo->granularity == 4) ? 4 : 1));
 		for (i = 0; i < count; i += prog_size_bytes) {
 			uint8_t residual_buffer[16];
 			uint8_t ftfx_fstat;
@@ -713,7 +821,8 @@ static int kinetis_write(struct flash_bank *bank, uint8_t *buffer,
 		}
 	}
 	/* program longword command, not supported in "SF3" devices */
-	else if ((kinfo->granularity != 3) || (kinfo->klxx)) {
+	else if ((kinfo->granularity != 3 && kinfo->granularity != 4)
+                 || (kinfo->klxx)) {
 
 		if (count & 0x3) {
 			uint32_t old_count = count;
@@ -780,11 +889,12 @@ static int kinetis_read_part_info(struct flash_bank *bank)
 	result = target_read_u32(target, SIM_SDID, &kinfo->sim_sdid);
 	if (result != ERROR_OK)
 		return result;
+	LOG_DEBUG("SIM_SDID: 0x%x\n", kinfo->sim_sdid);
 
 	kinfo->klxx = 0;
 
 	/* K-series MCU? */
-	if ((kinfo->sim_sdid & (~KINETIS_SDID_K_SERIES_MASK)) == 0) {
+	if ((kinfo->sim_sdid & KINETIS_K_SDID_SERIESID_MASK) == KINETIS_K_SDID_SERIESID_KL) {
 		uint32_t mcu_type = kinfo->sim_sdid & KINETIS_K_SDID_TYPE_MASK;
 
 		switch (mcu_type) {
@@ -808,9 +918,21 @@ static int kinetis_read_part_info(struct flash_bank *bank)
 			/* 2kB sectors */
 			granularity = 2;
 			break;
+		case KINETIS_K_SDID_K22_M120:
+			/* 2kB sectors, no program section command */
+			granularity = 5;
+			break;
+		case KINETIS_K_SDID_K24:
+			/* 4kB sectors, no program section command */
+			granularity = 6;
+			break;
+		case KINETIS_K_SDID_K64:
+			/* 2kB sectors, 2 banks */
+			granularity = 4;
+			break;
 		case KINETIS_K_SDID_K10:
 		case KINETIS_K_SDID_K70:
-			/* 4kB sectors */
+			/* 4kB sectors, 4 banks */
 			granularity = 3;
 			break;
 		default:
@@ -853,8 +975,10 @@ static int kinetis_read_part_info(struct flash_bank *bank)
 			nvm_size = 1 << (14 + (fcfg1_nvmsize >> 1));
 			break;
 		case 0x0f:
-			if (granularity == 3)
+			if (granularity == 3 || granularity == 4)
 				nvm_size = 512<<10;
+			else if (granularity == 5)
+				nvm_size = 128<<10;
 			else
 				nvm_size = 256<<10;
 			break;
@@ -892,8 +1016,10 @@ static int kinetis_read_part_info(struct flash_bank *bank)
 		pf_size = 1 << (14 + (fcfg1_pfsize >> 1));
 		break;
 	case 0x0f:
-		if (granularity == 3)
+		if (granularity == 3 || granularity == 4)
 			pf_size = 1024<<10;
+		else if (granularity == 5)
+			pf_size = 512<<10;
 		else if (fcfg2_pflsh)
 			pf_size = 512<<10;
 		else
@@ -1132,6 +1258,140 @@ static int kinetis_blank_check(struct flash_bank *bank)
 	}
 
 	return ERROR_OK;
+}
+
+/* Set SP - With the ff02
+   version of the CMSIS-DAP firmare on TWR-K24F boards, this is required to
+   ensure SP is initialized correctly. This may be related to the that version of
+   the firmware deviating from the norm by calling set_target_state(RESET_PROGRAM)
+   when OpenOCD connects.  */
+int kinetis_k24f_fix (struct target *target)
+{
+	int retval;
+	uint32_t sim_sdid;
+	retval = target_read_u32(target, SIM_SDID, &sim_sdid);
+	if (retval != ERROR_OK)
+		return retval;
+	if (((sim_sdid & KINETIS_K_SDID_SERIESID_MASK) == KINETIS_K_SDID_SERIESID_KL)
+	    && ((sim_sdid & KINETIS_K_SDID_TYPE_MASK) == KINETIS_K_SDID_K24)) {
+		uint32_t sp;
+		uint32_t pc;
+		struct armv7m_common *armv7m = target_to_armv7m(target);
+		target_step (target, 1, 0, 0);
+		retval = target_read_u32(target, 0x0, &sp);
+		if (retval != ERROR_OK) {
+			return retval;
+		}
+		retval = armv7m->store_core_reg_u32(target, 13, sp);
+		if (retval != ERROR_OK) {
+		return retval;
+		} 
+		retval = target_read_u32 (target, 0x4, &pc);
+		if (retval != ERROR_OK) {
+			return retval;
+		}
+		retval = armv7m->store_core_reg_u32 (target, 15, pc & ~1);
+		if (retval != ERROR_OK) {
+			return retval;
+		} 
+	}
+	return ERROR_OK;
+}
+
+/* Disable the watchdog on Kinetis devices */
+int kinetis_disable_wdog (struct target *target)
+{
+	struct working_area *wdog_algorithm;
+	struct armv7m_algorithm armv7m_info;
+	uint32_t sim_sdid;
+	uint16_t wdog;
+	int retval;
+
+	static const uint8_t kinetis_unlock_wdog_code[] = {
+		/* WDOG_UNLOCK = 0xC520 */
+		0x4f, 0xf4, 0x00, 0x53,    /* mov.w   r3, #8192     ; 0x2000  */
+		0xc4, 0xf2, 0x05, 0x03,    /* movt    r3, #16389    ; 0x4005  */
+		0x4c, 0xf2, 0x20, 0x52,   /* movw    r2, #50464    ; 0xc520  */
+		0xda, 0x81,               /* strh    r2, [r3, #14]  */
+                                  
+		/* WDOG_UNLOCK = 0xD928 */
+		0x4f, 0xf4, 0x00, 0x53,   /* mov.w   r3, #8192     ; 0x2000  */
+		0xc4, 0xf2, 0x05, 0x03,   /* movt    r3, #16389    ; 0x4005  */
+		0x4d, 0xf6, 0x28, 0x12,   /* movw    r2, #55592    ; 0xd928  */
+		0xda, 0x81,               /* strh    r2, [r3, #14]  */
+                                  
+		/* WDOG_SCR = 0x1d2 */
+		0x4f, 0xf4, 0x00, 0x53,   /* mov.w   r3, #8192     ; 0x2000  */
+		0xc4, 0xf2, 0x05, 0x03,   /* movt    r3, #16389    ; 0x4005  */
+		0x4f, 0xf4, 0xe9, 0x72,   /* mov.w   r2, #466      ; 0x1d2  */
+		0x1a, 0x80,               /* strh    r2, [r3, #0]  */
+
+		/* END */
+		0x00, 0xBE,               /* bkpt #0 */
+	};
+
+	/* Decide whether the connected device should needs its watchdog disabling. */
+	retval = target_read_u32(target, SIM_SDID, &sim_sdid);
+	if (retval != ERROR_OK)
+		return retval;
+	if ((sim_sdid & KINETIS_K_SDID_SERIESID_MASK) == KINETIS_K_SDID_SERIESID_KL) {
+		uint32_t mcu_type = sim_sdid & KINETIS_K_SDID_TYPE_MASK;
+
+		switch (mcu_type) {
+		case KINETIS_K_SDID_K22_M120:
+		case KINETIS_K_SDID_K24:
+			break;
+		default:
+			return ERROR_OK;
+		}
+	}
+	else {
+		return ERROR_OK;
+	}
+
+	/* The connected device requires its watchdog disabling. */
+	retval = target_read_u16(target, WDOG_STCTRLH, &wdog);
+	if (retval != ERROR_OK)
+		return retval;
+	LOG_INFO("Disabling Kinetis watchdog (initial WDOG_STCTRLH = 0x%x)", wdog);
+
+	retval = target_halt(target);
+	if (retval != ERROR_OK)
+		return retval;
+	target->state = TARGET_HALTED;
+
+	retval = target_alloc_working_area(target, sizeof(kinetis_unlock_wdog_code), &wdog_algorithm);
+	if (retval != ERROR_OK)
+		return retval;
+
+	retval = target_write_buffer(target, wdog_algorithm->address,
+			sizeof(kinetis_unlock_wdog_code), (uint8_t *)kinetis_unlock_wdog_code);
+	if (retval != ERROR_OK) {
+		target_free_working_area(target, wdog_algorithm);
+		return retval;
+	}
+
+	armv7m_info.common_magic = ARMV7M_COMMON_MAGIC;
+	armv7m_info.core_mode = ARM_MODE_THREAD;
+
+	retval = target_run_algorithm(target, 0, NULL, 0, NULL, wdog_algorithm->address,
+			wdog_algorithm->address + (sizeof(kinetis_unlock_wdog_code) - 2),
+			10000, &armv7m_info);
+
+	if (retval != ERROR_OK)
+		LOG_ERROR("error executing kinetis wdog unlock algorithm");
+
+	retval = target_read_u16(target, WDOG_STCTRLH, &wdog);
+	if (retval != ERROR_OK)
+		return retval;
+	LOG_INFO("WDOG_STCTRLH = 0x%x", wdog);
+
+	target_free_working_area(target, wdog_algorithm);
+	retval = kinetis_k24f_fix (target);
+	if (retval != ERROR_OK)
+		return retval;
+
+	return retval;
 }
 
 struct flash_driver kinetis_flash = {
