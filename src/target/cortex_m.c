@@ -539,6 +539,9 @@ static int cortex_m_poll(struct target *target)
 		}
 		target->state = TARGET_RUNNING;
 		prev_target_state = TARGET_RUNNING;
+
+		/* Disable Freescale Kinetis WDOG */
+		kinetis_disable_wdog(target);
 	}
 
 	if (cortex_m->dcb_dhcsr & S_HALT) {
@@ -1429,8 +1432,7 @@ int cortex_m_add_watchpoint(struct target *target, struct watchpoint *watchpoint
 		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
 	}
 	if (watchpoint->address & ((1 << mask) - 1)) {
-		LOG_DEBUG("watchpoint address is unaligned");
-		return ERROR_TARGET_RESOURCE_NOT_AVAILABLE;
+		LOG_WARNING("watchpoint address is unaligned");
 	}
 
 	/* Caller doesn't seem to be able to describe watching for data
@@ -1878,6 +1880,7 @@ int cortex_m_examine(struct target *target)
 {
 	int retval;
 	uint32_t cpuid, fpcr, mvfr0, mvfr1;
+	uint8_t fsec;
 	int i;
 	struct cortex_m_common *cortex_m = target_to_cm(target);
 	struct adiv5_dap *swjdp = cortex_m->armv7m.arm.dap;
@@ -1893,6 +1896,22 @@ int cortex_m_examine(struct target *target)
 
 	if (!target_was_examined(target)) {
 		target_set_examined(target);
+
+		retval = target_read_u8(target, FSEC, &fsec);
+		if (retval != ERROR_OK) {
+			LOG_ERROR("Cannot read FSEC. Device may be secured");
+			LOG_INFO("Mass erasing a device will unsecure it until the next reset. "
+				 "To permanently unsecure, mass erase then flash a "
+				 "program containing an appropriate flash configuration field.");
+			exit(-1);
+		}
+		else if ((fsec & 0x3) != 0x2) {
+			LOG_ERROR("Cannot access device, device is secured");
+			LOG_INFO("Mass erasing a device will unsecure it until the next reset. "
+				 "To permanently unsecure, mass erase then flash a "
+				 "program containing an appropriate flash configuration field.");
+			exit(-1);
+		}
 
 		/* Read from Device Identification Registers */
 		retval = target_read_u32(target, CPUID, &cpuid);
