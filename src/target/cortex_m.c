@@ -1903,14 +1903,14 @@ int cortex_m_examine(struct target *target)
 			LOG_INFO("Mass erasing a device will unsecure it until the next reset. "
 				 "To permanently unsecure, mass erase then flash a "
 				 "program containing an appropriate flash configuration field.");
-			exit(-1);
+			//exit(-1);
 		}
 		else if ((fsec & 0x3) != 0x2) {
 			LOG_ERROR("Cannot access device, device is secured");
 			LOG_INFO("Mass erasing a device will unsecure it until the next reset. "
 				 "To permanently unsecure, mass erase then flash a "
 				 "program containing an appropriate flash configuration field.");
-			exit(-1);
+			//exit(-1);
 		}
 
 		/* Read from Device Identification Registers */

@@ -477,6 +477,8 @@ COMMAND_HANDLER(kinetis_check_flash_security_status)
 		goto fail;
 	}
 
+	int status = ERROR_OK;
+
 	if (val & MDM_STAT_SYSSEC) {
 		jtag_poll_set_enabled(false);
 
@@ -489,6 +491,7 @@ COMMAND_HANDLER(kinetis_check_flash_security_status)
 		LOG_WARNING("**** command, power cycle the MCU and restart OpenOCD.        ****");
 		LOG_WARNING("****                                                          ****");
 		LOG_WARNING("*********** ATTENTION! ATTENTION! ATTENTION! ATTENTION! **********");
+		status = ERROR_FLASH_OPERATION_FAILED;
 	} else {
 		LOG_INFO("MDM: Chip is unsecured. Continuing.");
 		jtag_poll_set_enabled(true);
@@ -496,7 +499,7 @@ COMMAND_HANDLER(kinetis_check_flash_security_status)
 
 	dap_ap_select(dap, origninal_ap);
 
-	return ERROR_OK;
+	return status;
 
 fail:
 	LOG_ERROR("MDM: Failed to check security status of the MCU. Cannot proceed further");
@@ -1003,16 +1006,16 @@ static int kinetis_write(struct flash_bank *bank, const uint8_t *buffer,
 		if (offset <= 0x400 && offset + count > 0x400) {
 			int fcf_match = 1;
 			uint32_t requested_fcf[4] = { 
-				*((uint32_t *) (buffer + (0x400 - offset))),
-				*((uint32_t *) (buffer + (0x404 - offset))),
-				*((uint32_t *) (buffer + (0x408 - offset))),
-				*((uint32_t *) (buffer + (0x40c - offset)))
+				*((uint8_t *) (buffer + (0x400 - offset))),
+				*((uint8_t *) (buffer + (0x404 - offset))),
+				*((uint8_t *) (buffer + (0x408 - offset))),
+				*((uint8_t *) (buffer + (0x40c - offset)))
 			};
 			uint32_t required_fcf[4] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xfffffffe };
 			for (i = 0; i < 4; i++) {
 				if (requested_fcf[i] != required_fcf[i]) {
 					fcf_match = 0;
-					*((uint32_t *) (buffer + (0x400 + (i * 4) - offset))) = required_fcf[i];
+					*((uint8_t *) (buffer + (0x400 + (i * 4) - offset))) = required_fcf[i];
 				}
 			}
 			if (!fcf_match) {
