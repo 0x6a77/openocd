@@ -179,6 +179,7 @@ static const struct {
 //#define KINETIS_K_SDID_K22 		 0x00000210
 #define KINETIS_K_SDID_K22_M50   0x00000210
 #define KINETIS_K_SDID_K22_M120	 0x00000310
+#define KINETIS_K_SDID_K22_M120v2	0x00000e90
 #define KINETIS_K_SDID_K24 		 0x00000710
 #define KINETIS_K_SDID_K30 		 0x00000120
 #define KINETIS_K_SDID_K30_M72   0x000000A0
@@ -946,7 +947,7 @@ static int kinetis_erase(struct flash_bank *bank, int first, int last)
 	if ((first > bank->num_sectors) || (last > bank->num_sectors))
 		return ERROR_FLASH_OPERATION_FAILED;
 
-	if ((kinfo->sim_sdid & KINETIS_K_SDID_TYPE_MASK) == KINETIS_K_SDID_K22_M120) {
+	if ((kinfo->sim_sdid & KINETIS_K_SDID_TYPE_MASK) == KINETIS_K_SDID_K22_M120v2) {
 		uint8_t pmstat = kinetis_get_mode (bank);
 		if (pmstat == PM_STAT_VLPR || pmstat == PM_STAT_HSR) {
 			LOG_DEBUG("Switching to run mode to perform flash operation");
@@ -1261,7 +1262,7 @@ static int kinetis_read_part_info(struct flash_bank *bank)
 			/* 4kB sectors */
 			granularity = 3;
 			break;
-		case KINETIS_K_SDID_K22_M120:
+		case KINETIS_K_SDID_K22_M120v2:
 			/* 2kB sectors, no program section command */
 			granularity = 5;
 			break;
@@ -1729,7 +1730,7 @@ int kinetis_disable_wdog (struct target *target)
 		uint32_t mcu_type = sim_sdid & KINETIS_K_SDID_TYPE_MASK;
 
 		switch (mcu_type) {
-		case KINETIS_K_SDID_K22_M120:
+		case KINETIS_K_SDID_K22_M120v2:
 		case KINETIS_K_SDID_K24:
 			break;
 		default:

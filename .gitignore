@@ -98,3 +98,4 @@ TAGS
 
 # ctags tag files
 tags
+/.DS_Store
