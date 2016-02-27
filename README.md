@@ -10,5 +10,13 @@ I have a lot going on these days, so I generally  only support the MCUs and plat
 To build this repo in Mac OSX you'll need to do the following:
 
 ./bootstrap
+
 ./configure --enable-cmsis-dap --disable-werror
+
 make
+
+I use CMSIS-DAP almost exclusively now (well, whenever I can) and it's much better.  If you're working with Freescale/NXP FRDM boards or a KL20-based CMSIS-DAP design you made yourself then you'll need configs for that.
+
+I also still sometimes use an FTDI-based pod.  It's based on the c232hm-edhsl.
+
+I have conigs that make this all work, but I hesistate to put them into this repo.  There is another repo that holds these configs.  The fewer changes I make to openocd repo, the better.
