@@ -1,7 +1,7 @@
 # openocd
 The place where I maintain Kinetis and Mac OSX fixes (until someone can get them into origin/master).
 
-The openocd community are not much fun.  Rather than deal with them, I'll maintain Kinetis fixes here.  It's not ideal.  I suppose if they were easier to deal with, then someone could have already gotten Kinetis fixes into origin/master.  Who knows.
+The openocd community are not much fun.  Thanks to the power of git, rather than deal with them, I can maintain Kinetis fixes here.  It's not ideal.  I suppose if they were easier to deal with, then someone could have already gotten Kinetis fixes into origin/master.  Who knows.
 
 I started with a branch called kinetis-merge where I got the somewhat randomly introduced Freescale commits.  I got that to build and then I merged that to master. 
 
